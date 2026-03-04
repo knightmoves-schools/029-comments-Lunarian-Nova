@@ -1,68 +1,40 @@
-const http = require("http");
 const fs = require("fs");
-const puppeteer = require("puppeteer");
-const { assert } = require("console");
+const path = require("path");
+const { JSDOM } = require("jsdom");
 
-let server;
-let browser;
-let page;
+let dom;
+let document;
 
 beforeAll(async () => {
-  server = http.createServer(function (req, res) {
-    fs.readFile(__dirname + "/.." + req.url, function (err, data) {
-      if (err) {
-        res.writeHead(404);
-        res.end(JSON.stringify(err));
-        return;
-      }
-      res.writeHead(200);
-      res.end(data);
-    });
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  dom = new JSDOM(html, { runScripts: "dangerously", resources: "usable", url: "http://localhost/" });
+  document = dom.window.document;
+  await new Promise((resolve) => {
+    if (document.readyState === 'complete') return resolve();
+    dom.window.addEventListener('load', () => resolve());
   });
-
-  server.listen(process.env.PORT || 3000);
 });
 
 afterAll(() => {
-  server.close();
-});
-
-beforeEach(async () => {
-  browser = await puppeteer.launch({
-    headless: true,  
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],  
-  });
-  page = await browser.newPage();
-  await page.goto("http://localhost:3000/index.html");
-});
-
-afterEach(async () => {
-  await browser.close();
+  if (dom && dom.window) dom.window.close();
 });
 
 describe('JavaScript in the script element', () => {
   
-  it('should comment out line 14 using a single-line comment', async () => {
-    const matches = await page.$eval('body script', (script) => {
-      return script.innerHTML.match(/\/\/.*total = total - 2;/g).length
-    });
-
+  it('should comment out line 14 using a single-line comment', () => {
+    const scriptText = document.querySelector('body script').textContent;
+    const matches = (scriptText.match(/\/\/.*total = total - 2;/g) || []).length;
     expect(matches).toBe(1);
   });
 
-  it('should comment out lines 16, 17, and 18 using a multi-line comment', async () => {
-    const matches = await page.$eval('body script', (script) => {
-      return script.innerHTML.match(/\/\*[\s\S][^\*\/]*total = total - 4;[\s\S][^\*\/]*total = total - 5;[\s\S][^\*\/]*total = total - 6;[\s\S]*\*\//g).length
-    });  
-
+  it('should comment out lines 16, 17, and 18 using a multi-line comment', () => {
+    const scriptText = document.querySelector('body script').textContent;
+    const matches = (scriptText.match(/\/\*[\s\S]*?total = total - 4;[\s\S]*?total = total - 5;[\s\S]*?total = total - 6;[\s\S]*?\*\//g) || []).length;
     expect(matches).toBe(1);
   });
 
-  it('should set the result element to 39', async () => {
-    const result = await page.$eval('#result', (result) => {
-      return result.innerHTML;
-    });
-
+  it('should set the result element to 39', () => {
+    const result = document.querySelector('#result').innerHTML;
     expect(result).toBe('39');
   });
 });
